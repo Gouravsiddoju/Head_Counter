@@ -1,0 +1,121 @@
+model: {name: yolov8m.pt, imgsz: 960, conf_threshold: 0.2, iou_threshold: 0.45, device: 0,
+  half_precision: false}
+tracking: {tracker: botsort.yaml, reid_enabled: true, reid_threshold: 0.6, reid_interval: 5,
+  max_age: 120, min_hits: 3}
+filtering: {min_person_height: 40, min_person_width: 15, min_aspect_ratio: 1.2, max_aspect_ratio: 5.0,
+  size_adaptation: true}
+performance: {mode: ACCURATE, frame_skip: 1, multi_threading: true, gpu_batch_size: 1,
+  max_fps: 30}
+performance_modes:
+  FAST: {model_name: yolov8m.pt, imgsz: 640, frame_skip: 3, conf_threshold: 0.4}
+  BALANCED: {model_name: yolov8x.pt, imgsz: 960, frame_skip: 2, conf_threshold: 0.25}
+  ACCURATE: {model_name: yolov8x.pt, imgsz: 1280, frame_skip: 1, conf_threshold: 0.2}
+preprocessing: {enabled: false, lighting_normalization: true, motion_blur_handling: false,
+  denoising: true, auto_white_balance: true, stabilization: false}
+counting:
+  mode: both
+  smooth_window: 30
+  save_unique_ids: true
+  zones_enabled: false
+  zones: []
+boundaries:
+  enabled: true
+  default_type: inclusion
+  cameras:
+    1.wmv:
+      type: inclusion
+      polygon:
+      - [260, 51]
+      - [1506, 38]
+      - [1918, 547]
+      - [1909, 1072]
+      - [2, 1066]
+      - [9, 114]
+      - [258, 50]
+      exclusions:
+      - - [500, 500]
+        - [600, 500]
+        - [600, 600]
+        - [500, 600]
+      area_sq_meters: 50.0
+    2.wmv:
+      type: inclusion
+      polygon:
+      - [1137, 713]
+      - [862, 199]
+      - [502, 195]
+      - [4, 565]
+      - [5, 713]
+      - [1135, 712]
+      calibration: {front_y: 544, front_area: 49878, back_y: 336, back_area: 22932}
+      exclusions:
+      - - [586, 296]
+        - [283, 715]
+        - [431, 719]
+        - [589, 414]
+        - [583, 297]
+      - - [843, 235]
+        - [929, 377]
+        - [982, 376]
+        - [1002, 240]
+        - [870, 124]
+        - [854, 150]
+        - [844, 233]
+    3.wmv:
+      type: inclusion
+      polygon:
+      - [1323, 87]
+      - [690, 211]
+      - [1, 530]
+      - [3, 1076]
+      - [1918, 1075]
+      - [1904, 217]
+      - [1333, 81]
+      - [531, 231]
+      area_sq_meters: 55.0
+    crowd.wmv:
+      type: inclusion
+      polygon:
+      - [741, 363]
+      - [970, 349]
+      - [1142, 349]
+      - [1308, 360]
+      - [1516, 381]
+      - [1706, 412]
+      - [1898, 484]
+      - [1914, 1062]
+      - [3, 1065]
+      - [7, 373]
+      - [582, 254]
+      - [728, 252]
+      - [735, 367]
+      area_sq_meters: 100.0
+stream: {type: file, file_path: cr.mp4, rtsp_url: '', rtsp_reconnect_attempts: 5,
+  rtsp_reconnect_delay: 5, rtsp_buffer_size: 30, rtsp_transport: tcp, webcam_id: 0,
+  directory_path: '', directory_pattern: '*.mp4'}
+output:
+  display_preview: true
+  preview_width: 1280
+  preview_height: 720
+  save_video: false
+  video_path: output_counted.mp4
+  video_codec: mp4v
+  save_frames: false
+  frames_path: output_frames/
+  frames_interval: 30
+  show_boxes: true
+  show_track_ids: true
+  show_trajectories: false
+  show_heatmap: false
+  box_color: [0, 255, 0]
+  box_thickness: 2
+  text_size: 0.6
+  text_color: [0, 255, 255]
+analytics: {enabled: true, log_to_console: true, log_to_file: true, log_file: analytics.csv,
+  log_interval: 1, track_occupancy: true, track_peak_occupancy: true, track_flow_rate: true,
+  track_dwell_time: true, track_fps: true, alerts_enabled: false, alert_threshold: 100,
+  alert_sound: false, alert_webhook: ''}
+calibration: {enabled: false, camera_height_meters: 4.0, camera_angle_degrees: 45,
+  fov_horizontal_degrees: 90, reference_person_height_pixels: 200, reference_person_height_meters: 1.7}
+advanced: {debug_mode: false, save_debug_images: false, profile_performance: false,
+  verbose_logging: false}
