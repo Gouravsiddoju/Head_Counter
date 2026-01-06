@@ -116,6 +116,12 @@ class PersonTrack:
         
         return (pred_x, pred_y)
 
+    def duration_seconds(self, fps: float) -> float:
+        """Calculate duration of track in seconds"""
+        if fps <= 0:
+            return 0.0
+        return (self.last_seen - self.first_seen) / fps
+
 
 class ReIDMatcher:
     """Re-identification matcher using face and appearance features"""

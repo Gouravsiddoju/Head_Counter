@@ -21,19 +21,33 @@ from preprocessing import FramePreprocessor
 from stream_handler import StreamHandler
 from advanced_tracker import TrackManager
 from cross_cam_reid import CrossCameraMatcher
+from cross_cam_reid import CrossCameraMatcher
 from analytics import AnalyticsEngine
+from results_manager import ResultManager
+from visualization_utils import generate_depth_map, DepthMapAnimator
 
 class SingleVideoProcessor:
     """Processes a single video to extract tracks"""
     
-    def __init__(self, config: dict, model: YOLO, device: str):
+    def __init__(self, config: dict, model: YOLO, device: str, result_manager: ResultManager = None):
         self.config = config
         self.model = model
         self.device = device
+        self.result_manager = result_manager
         
         # Initialize components
         self.track_manager = TrackManager(config['tracking'])
         self.preprocessor = FramePreprocessor(config['preprocessing'])
+        self.preprocessor = FramePreprocessor(config['preprocessing'])
+        
+        # Setup analytics with result folder path if available
+        if self.result_manager:
+            # Create a unique log name per video (or shared if preferred, but per video is safer for multicam unless aggregated)
+            # Actually analytics is instantiated per video processor here.
+            # Let's save as {video_name}_analytics.csv in results folder
+            import os
+            self.config['analytics']['log_file_path'] = self.result_manager.get_path(f'analytics_{int(time.time())}.csv')
+            
         self.analytics = AnalyticsEngine(config['analytics']) # Initialize per-video analytics
         
         self.frame_count = 0
@@ -42,6 +56,7 @@ class SingleVideoProcessor:
         self.boundary_polygon = None
         self.boundary_type = 'inclusion'
         self.exclusion_polygons = []
+        self.effective_area = 0.0
         
     def _init_boundary(self, video_name: str):
         """Initialize boundary for specific video"""
@@ -59,6 +74,40 @@ class SingleVideoProcessor:
                 print(f"  Initialized {self.boundary_type} boundary with {len(points)} points")
                 if self.exclusion_polygons:
                     print(f"  Initialized {len(self.exclusion_polygons)} exclusion zones")
+                
+                if self.result_manager:
+                    # Static Map
+                    viz_filename = f"depth_map_{video_name}.png"
+                    viz_path = self.result_manager.get_path(viz_filename)
+                    generate_depth_map(self.boundaries['cameras'][video_name], viz_path)
+                    
+                    # Animated Map
+                    anim_filename = f"depth_map_video_{video_name}.mp4"
+                    anim_path = self.result_manager.get_path(anim_filename)
+                    self.depth_animator = DepthMapAnimator(self.boundaries['cameras'][video_name], anim_path)
+                else:
+                    self.depth_animator = None
+        else:
+            self.depth_animator = None
+            
+        # Calculate effective area if possible
+        if self.boundary_polygon is not None and self.boundaries.get('cameras', {}).get(video_name, {}).get('area_sq_meters'):
+             total_area_m2 = self.boundaries['cameras'][video_name]['area_sq_meters']
+             
+             # Calculate pixel areas to find exclusion ratio
+             incl_pixel_area = cv2.contourArea(self.boundary_polygon)
+             excl_pixel_area = 0
+             if self.exclusion_polygons:
+                 for p in self.exclusion_polygons:
+                     excl_pixel_area += cv2.contourArea(p)
+            
+             if incl_pixel_area > 0:
+                 ratio = max(0.0, (incl_pixel_area - excl_pixel_area) / incl_pixel_area)
+                 self.effective_area = total_area_m2 * ratio
+                 print(f"  Area: {total_area_m2}m² (Config) -> {self.effective_area:.2f}m² (Effective after exclusions)")
+             else:
+                 self.effective_area = total_area_m2
+
         
     def _calculate_capacity(self, calib, polygon, shape):
         """Calculate zone capacity using perspective integration with exclusions"""
@@ -93,9 +142,13 @@ class SingleVideoProcessor:
             pixel_areas = np.maximum(pixel_areas, 10.0) # Min 10 pixels
             
             # Buffer factor (Personal space + Packing inefficiency)
-            # 2.0 = Person needs 2x their actual bounding box area (loose crowd)
-            buffer_factor = 2.0 
-            effective_areas = pixel_areas * buffer_factor
+            # OLD: 2.0 = Person needs 2x their actual bounding box area. WRONG.
+            # Bounding box is full height (Area = W * H). 
+            # Standing footprint is roughly W * W or W * Depth ~ Area / 3 to Area / 4.
+            # So the divisor should be much smaller.
+            # Let's say Footprint = 0.3 * BBox Area.
+            footprint_factor = 0.4
+            effective_areas = pixel_areas * footprint_factor
             
             # Sum capacity contributions
             total_capacity = np.sum(1.0 / effective_areas)
@@ -133,19 +186,46 @@ class SingleVideoProcessor:
         
         frame_skip = self.config['performance'].get('frame_skip', 1)
         
-        # Init capacity
+         # Init capacity
         self.capacity = 0
+        cam_config = {}
         if self.boundaries.get('enabled', False) and video_name in self.boundaries.get('cameras', {}):
              cam_config = self.boundaries['cameras'][video_name]
-             if 'calibration' in cam_config:
+             
+             # Physical Capacity Calculation
+             if self.effective_area > 0:
+                 phys_params = self.config.get('physical_params', {})
+                 base_footprint = phys_params.get('base_footprint_m2', 0.4)
+                 # Average buffer for static capacity (between 1.2 and 2.0 -> 1.6)
+                 buffer_avg = (phys_params.get('buffer_factor_high', 2.0) + phys_params.get('buffer_factor_low', 1.2)) / 2.0
+                 
+                 self.capacity = int(self.effective_area / (base_footprint * buffer_avg))
+                 print(f"  Physical Capacity: {self.capacity} people (Effective Area: {self.effective_area:.1f}m²)")
+                 
+             elif 'calibration' in cam_config:
                  self.capacity = self._calculate_capacity(cam_config['calibration'], self.boundary_polygon, (props['height'], props['width']))
                  print(f"  Perspective Capacity: {self.capacity} people")
+             elif 'area_sq_meters' in cam_config:
+                 # Fallback: Fixed density capacity (2.5 people / m^2)
+                 area = cam_config['area_sq_meters']
+                 self.capacity = int(area * 2.5) 
+                 print(f"  Fixed Capacity (from Area): {self.capacity} people (Area: {area}m²)")
         
         # Initialize Video Writer
         self.video_writer = None
         self.output_path = ""
+        # FORCE SAVE VIDEO = TRUE
+        self.config['output']['save_video'] = True
+        
         if self.config['output'].get('save_video', False):
             self.output_path = f"output_{video_name}"
+            # Ensure mp4 extension
+            if not self.output_path.lower().endswith('.mp4'):
+                self.output_path = os.path.splitext(self.output_path)[0] + '.mp4'
+            
+            # Redirect to results folder
+            if self.result_manager:
+                self.output_path = self.result_manager.get_path(self.output_path)
             # Ensure mp4 extension
             if not self.output_path.lower().endswith('.mp4'):
                 self.output_path = os.path.splitext(self.output_path)[0] + '.mp4'
@@ -230,18 +310,31 @@ class SingleVideoProcessor:
                 process_time = frame_end_time - frame_start_time
                 
                 # Prepare metrics
+                # Filter for newly completed tracks (ended at current frame)
+                newly_completed = [t.duration_seconds(fps) for t in self.track_manager.completed_tracks 
+                                  if t.last_seen == self.frame_count]
+
                 metrics = {
                     'current_count': len(self.track_manager.active_tracks),
                     'unique_count': len(self.track_manager.unique_ids),
                     'frame_time': process_time, 
                     'polygon_pixels': polygon_pixels,
                     'occupied_pixels': occupied_pixels,
-                    'capacity': self.capacity
+                    'occupied_pixels': occupied_pixels,
+                    'capacity': self.capacity,
+                    'area_sq_meters': self.effective_area,
+                    'completed_dwell_times': newly_completed
                 }
                 
                 self.analytics.update(metrics)
                 
                 self.track_manager.update([], frame, self.frame_count, yolo_tracks)
+                
+                # Update Depth Map Animation
+                # Use active tracks
+                if self.depth_animator:
+                    self.depth_animator.update(self.track_manager.active_tracks.values())
+                
                 if self.config['output'].get('save_video', False):
                     # Draw Boundary
                     if self.boundary_polygon is not None:
@@ -270,6 +363,9 @@ class SingleVideoProcessor:
             if hasattr(self, 'video_writer') and self.video_writer:
                 self.video_writer.release()
                 print(f"  Video saved to {self.output_path}")
+            
+            if hasattr(self, 'depth_animator') and self.depth_animator:
+                self.depth_animator.release()
             
             if hasattr(self, 'analytics'):
                 self.analytics.close()
@@ -347,9 +443,15 @@ def main():
     with open(args.config) as f:
         config = yaml.safe_load(f)
         
-    # Override save_video if specified
     if args.save:
         config['output']['save_video'] = True
+    else:
+        # Force default True as requested
+        config['output']['save_video'] = True
+    
+    # Initialize Result Manager
+    result_manager = ResultManager() # Creates results/YYYY-... folder
+    result_manager.save_config(args.config) # Save config for reference
         
     # Setup Model
     device_conf = config['model'].get('device', 'cpu')
@@ -413,7 +515,7 @@ def main():
     total_local_counts = {}
     
     for video_path in video_paths:
-        processor = SingleVideoProcessor(config, model, device)
+        processor = SingleVideoProcessor(config, model, device, result_manager)
         tracks = processor.process_video(video_path, args.limit)
         
         video_name = os.path.basename(video_path)

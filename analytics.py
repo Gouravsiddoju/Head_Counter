@@ -24,7 +24,8 @@ class AnalyticsEngine:
         # Logging settings
         self.log_to_console = config.get('log_to_console', True)
         self.log_to_file = config.get('log_to_file', True)
-        self.log_file = config.get('log_file', 'analytics.csv')
+        # Allow overriding log_file from config or use default
+        self.log_file = config.get('log_file_path', config.get('log_file', 'analytics.csv'))
         self.log_interval = config.get('log_interval', 1)  # seconds
         
         # Metrics tracking
@@ -42,6 +43,7 @@ class AnalyticsEngine:
         
         # Data storage
         self.occupancy_history = deque(maxlen=1800)  # 1 minute at 30fps
+        self.unique_history = deque(maxlen=1800)     # Track unique count history for flow rate
         self.peak_occupancy = 0
         self.flow_history = deque(maxlen=1800)
         self.fps_history = deque(maxlen=90)  # 3 seconds at 30fps
@@ -56,6 +58,15 @@ class AnalyticsEngine:
         self.total_unique_people = 0
         self.alert_count = 0
         self.last_alert_time = 0
+        
+        
+        # Physical parameters
+        self.phys_params = config.get('physical_params', {})
+        self.base_footprint = self.phys_params.get('base_footprint_m2', 0.4)
+        self.buffer_high = self.phys_params.get('buffer_factor_high', 2.0)
+        self.buffer_low = self.phys_params.get('buffer_factor_low', 1.2)
+        
+        self.utilization_smoother = deque(maxlen=30)
         
         # Initialize CSV log
         if self.log_to_file:
@@ -110,6 +121,7 @@ class AnalyticsEngine:
         
         # Update unique people
         self.total_unique_people = metrics.get('unique_count', 0)
+        self.unique_history.append(self.total_unique_people)
         
         # Update FPS
         if self.track_fps_metric:
@@ -118,6 +130,9 @@ class AnalyticsEngine:
                 self.frame_times.append(frame_time)
                 current_fps = 1.0 / np.mean(self.frame_times)
                 self.fps_history.append(current_fps)
+        
+        if 'completed_dwell_times' in metrics:
+            self.dwell_times.extend(metrics['completed_dwell_times'])
         
         # Check alerts
         alert_active = False
@@ -136,10 +151,11 @@ class AnalyticsEngine:
             polygon_pixels = metrics.get('polygon_pixels', 0)
             occupied_pixels = metrics.get('occupied_pixels', 0)
             capacity = metrics.get('capacity', 0)
-            self._log_to_csv(current_count, alert_active, polygon_pixels, occupied_pixels, capacity)
+            area_sq_meters = metrics.get('area_sq_meters', 0)
+            self._log_to_csv(current_count, alert_active, polygon_pixels, occupied_pixels, capacity, area_sq_meters)
             self.last_log_time = current_time
     
-    def _log_to_csv(self, current_count: int, alert_active: bool, polygon_pixels: float = 0, occupied_pixels: float = 0, metrics_capacity: int = 0):
+    def _log_to_csv(self, current_count: int, alert_active: bool, polygon_pixels: float = 0, occupied_pixels: float = 0, metrics_capacity: int = 0, area_sq_meters: float = 0):
         """Log current metrics to CSV file"""
         try:
             timestamp = time.time()
@@ -150,40 +166,41 @@ class AnalyticsEngine:
             avg_dwell = np.mean(self.dwell_times) if self.dwell_times else 0
             avg_fps = np.mean(self.fps_history) if self.fps_history else 0
             
-            # Merged metrics dict for convenience logic below
-            metrics = {'capacity': metrics_capacity}
+            # Static Capacity (calculated at startup and passed here)
+            est_capacity = metrics_capacity if metrics_capacity > 0 else 0
             
-            # Calculate Utilization & Capacity
-            utilization_pct = 0.0
-            capacity_status = "Normal"
+            # Geometric Footprint Model for Utilization
+            # Dynamic Buffering: 2.0 (Comfortable) -> 1.2 (Crowded)
+            # Linearly interpolate buffer based on fullness (0% -> high buffer, 100% -> low buffer)
+            # Simple approach: Scale buffer based on count vs capacity
             
-            # Use provided capacity if available (Perspective Awareness)
-            est_capacity = metrics.get('capacity', 0)
-            
+            dynamic_buffer = self.buffer_high
             if est_capacity > 0:
-                utilization_pct = (current_count / est_capacity) * 100
+                fullness_ratio = min(1.0, current_count / est_capacity)
+                # Linear interpolation: high -> low
+                dynamic_buffer = self.buffer_high - (fullness_ratio * (self.buffer_high - self.buffer_low))
             
-            # Fallback to pixel-based approximate if no perspective capacity
-            elif polygon_pixels > 0:
-                utilization_pct = (occupied_pixels / polygon_pixels) * 100
-                
-                # Estimate capacity (Legacy/Fallback)
-                avg_person_size = 0
-                if current_count > 0:
-                    avg_person_size = occupied_pixels / current_count
-                else:
-                    avg_person_size = 10000 
-                
-                if avg_person_size > 0:
-                    est_capacity = int(polygon_pixels / (avg_person_size * 2.0)) 
+            # Calculate Used Area
+            used_area = current_count * (self.base_footprint * dynamic_buffer)
             
-            # Status based on utilization 
+            # Calculate Utilization %
+            raw_utilization_pct = 0.0
+            if area_sq_meters > 0:
+                raw_utilization_pct = (used_area / area_sq_meters) * 100
+            elif est_capacity > 0:
+                 # Fallback if area not passed but capacity is
+                 raw_utilization_pct = (current_count / est_capacity) * 100
+
+            # Apply Temporal Smoothing (30-frame rolling average)
+            self.utilization_smoother.append(raw_utilization_pct)
+            utilization_pct = np.mean(self.utilization_smoother)
             
             # Status based on utilization
-            if utilization_pct > 60:
-                capacity_status = "High"
+            capacity_status = "NORMAL"
+            if utilization_pct > 50:
+                capacity_status = "HIGH"
             if utilization_pct > 80:
-                capacity_status = "Critical"
+                capacity_status = "CRITICAL"
 
             with open(self.log_file, 'a', newline='') as f:
                 writer = csv.writer(f)
@@ -205,21 +222,25 @@ class AnalyticsEngine:
             print(f"Warning: Could not log to CSV: {e}")
     
     def _calculate_flow_rate(self) -> float:
-        """Calculate people flow rate (people per minute)"""
-        if len(self.occupancy_history) < 2:
+        """Calculate people flow rate (new unique people per minute)"""
+        if len(self.unique_history) < 30: # Need at least ~1 second of data
             return 0.0
         
-        # Simple approximation: change in unique count over time
-        # For more accurate flow, use zone entry/exit counters
-        time_window = len(self.occupancy_history) / self.fps  # seconds
-        if time_window < 1:
+        # diverse window sizes for short term flow
+        window_frames = min(len(self.unique_history), self.fps * 60) # Up to 1 minute lookback
+        
+        current_unique = self.unique_history[-1]
+        past_unique = self.unique_history[-window_frames]
+        
+        new_people = current_unique - past_unique
+        
+        # Normalize to per minute
+        seconds_passed = window_frames / self.fps
+        if seconds_passed <= 0:
             return 0.0
-        
-        # Estimate flow from occupancy variance
-        variance = np.var(list(self.occupancy_history))
-        flow_rate = variance * 60 / time_window  # Convert to per minute
-        
-        return max(0, flow_rate)
+            
+        flow_per_minute = (new_people / seconds_passed) * 60
+        return max(0.0, flow_per_minute)
     
     def _trigger_alert(self, count: int):
         """Trigger overcrowding alert"""

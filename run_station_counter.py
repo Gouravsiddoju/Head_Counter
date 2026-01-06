@@ -306,10 +306,15 @@ class StationCounter:
             self.profiler.end_stage()
         
         # 7. Update analytics
+        # Filter for newly completed tracks (ended at current frame)
+        newly_completed = [t.duration_seconds(self.fps) for t in self.track_manager.completed_tracks 
+                          if t.last_seen == self.frame_count]
+                          
         metrics = {
             'current_count': current_count,
             'unique_count': len(self.track_manager.unique_ids),
-            'frame_time': 0  # Will be updated below
+            'frame_time': 0,  # Will be updated below
+            'completed_dwell_times': newly_completed
         }
         
         return vis_frame, metrics
