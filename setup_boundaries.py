@@ -332,7 +332,7 @@ def main():
     # ==========================================
     # INPUT CONFIGURATION
     # Paste your video file path or folder path here:
-    INPUT_SOURCE = "clip/2.wmv" 
+    INPUT_SOURCE = "OneDrive/videos/" 
     # Examples:
     # INPUT_SOURCE = "clip"                   # Process all videos in 'clip' folder
     # INPUT_SOURCE = "/path/to/my/video.mp4"  # Process specific video
@@ -376,6 +376,14 @@ def main():
             name = os.path.basename(video_path)
             configs[name] = points
             print(f"Captured {len(points)} points for {name}")
+            
+            # Ask for Area
+            try:
+                area_str = input(f"Enter Total Physical Area in m^2 for {name} (e.g. 50.0) [Enter to skip]: ")
+                if area_str.strip():
+                    points['area_sq_meters'] = float(area_str.strip())
+            except ValueError:
+                print("Invalid area value entered. Skipping area.")
 
     print("="*60)
     
@@ -435,6 +443,9 @@ def main():
                         },
                         'exclusions': data.get('exclusions', [])
                     }
+                    
+                    if 'area_sq_meters' in data:
+                        config_data['boundaries']['cameras'][name]['area_sq_meters'] = data['area_sq_meters']
                     
                 # Write back
                 with open(config_path, 'w') as f:

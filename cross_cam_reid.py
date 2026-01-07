@@ -170,10 +170,12 @@ class CrossCameraMatcher:
                         pass
             
             if scores:
-                app_sim = max(scores) # Take best visual match
+                app_sim = np.mean(scores) # Take average for consistency (prevents single-frame false positives)
                 
         # Combined Score
-        if face_sim > 0:
-            return 0.6 * face_sim + 0.4 * app_sim
+        if face_sim > 0.6: # Strong face match overrides appearance
+             return 0.7 * face_sim + 0.3 * app_sim
+        elif face_sim > 0: # Weak face match helps but relies on appearance
+             return 0.3 * face_sim + 0.7 * app_sim
         else:
             return app_sim

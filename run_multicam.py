@@ -425,7 +425,7 @@ def main():
     # ==========================================
     # INPUT CONFIGURATION
     # Paste your video file path or folder path here:
-    INPUT_SOURCE = "clip/2.wmv" 
+    INPUT_SOURCE = "OneDrive/videos/NR_NDLS_SERVER_2_NR_NDLS_PF16_CPSIDE_PTZ_104_20260102183911000_20260102184011000_High.wmv" 
     # Examples:
     # INPUT_SOURCE = "clip"                   # Process all videos in 'clip' folder
     # INPUT_SOURCE = "/path/to/my/video.mp4"  # Process specific video
@@ -509,7 +509,7 @@ def main():
     print(f"Found {len(video_paths)} videos: {[os.path.basename(v) for v in video_paths]}")
     
     # Initialize Cross-Camera Matcher
-    reid_matcher = CrossCameraMatcher(match_threshold=0.35)
+    reid_matcher = CrossCameraMatcher(match_threshold=0.75)
     
     # Process each video
     total_local_counts = {}
