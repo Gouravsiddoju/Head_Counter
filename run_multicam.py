@@ -277,18 +277,29 @@ class SingleVideoProcessor:
                 
                 # 3. Update Tracking
                 yolo_tracks = {}
+                # DEBUG: Check model classes once
+                if self.frame_count == 1:
+                    print(f"DEBUG: Model Classes: {results[0].names}")
+
                 for r in results:
                     boxes = r.boxes
+                    if self.frame_count % 30 == 0:
+                         print(f"DEBUG Frame {self.frame_count}: Raw Boxes: {len(boxes)}")
+                         
                     for box in boxes:
-                        if int(box.cls[0]) == 0:  # Person
+                        if int(box.cls[0]) == 0:  # Person/Face
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
                             conf = float(box.conf[0])
                             
-                            # Filter small boxes AND boundary check
-                            if self._is_valid_detection(x1, y1, x2, y2):
+                            # Use frame.shape for clamping logic
+                            valid, reason = self._is_valid_detection(x1, y1, x2, y2, frame.shape[:2])
+                            if valid:
                                 if box.id is not None:
                                     track_id = int(box.id[0])
                                     yolo_tracks[track_id] = ((x1, y1, x2, y2), conf)
+                            elif self.frame_count % 30 == 0:
+                                # Print rejection reason occasionally
+                                print(f"DEBUG Frame {self.frame_count}: Rejected {reason}")
                 
                 
                 # Calculate pixel metrics
@@ -386,40 +397,58 @@ class SingleVideoProcessor:
         
         return final_list
 
-    def _is_valid_detection(self, x1, y1, x2, y2):
-        """Check if detection is valid (size and boundary)"""
+    def _is_valid_detection(self, x1, y1, x2, y2, frame_shape_hw=None):
+        """Check if detection is valid (size and boundary). Returns (bool, reason)"""
         width = x2 - x1
         height = y2 - y1
         
         # 1. Size filter
-        if height <= 40 or width <= 20:
-            return False
+        if height <= 10 or width <= 10:
+            return False, "Size"
             
         # 2. Boundary filter
         if self.boundary_polygon is not None:
             # Check center bottom point (feet location usually best for boundary)
             # or center point
+            
+            # HEAD DETECTION ADAPTATION:
+            # Current box is HEAD. Feet are much lower.
+            # Avg head height ~ 22-25cm. Avg height            # HEAD DETECTION ADAPTATION:
+            # Projection: y_feet = y_head_bottom + (head_height * 6.5)
+            # ONLY apply if using a Head/Face model
+            
+            model_name = self.config['model']['name']
+            is_head_model = 'head' in model_name or 'face' in model_name
+            
+            feet_offset = 0
+            if is_head_model:
+                head_h = y2 - y1
+                feet_offset = int(head_h * 6.5)
+            
             cx = int((x1 + x2) / 2)
-            cy = int(y2) # Feet
+            cy = int(y2 + feet_offset) # Projected Feet
+            
+            # Clamp to screen bottom if provided
+            if frame_shape_hw:
+                h, w = frame_shape_hw
+                cy = min(cy, h - 1)
             
             is_inside = cv2.pointPolygonTest(self.boundary_polygon, (cx, cy), False) >= 0
             
             if self.boundary_type == 'inclusion':
                 if not is_inside:
-                    return False
+                    return False, f"Boundary (Excl: {cx},{cy})"
             else: # exclusion
                 if is_inside:
-                    return False
-            
-            # Check explicit exclusion zones
-            if self.exclusion_polygons:
-                center_point = (cx, cy)
-                for exc_poly in self.exclusion_polygons:
-                    if cv2.pointPolygonTest(exc_poly, center_point, False) >= 0:
-                        return False # Inside an exclusion zone
-
+                    return False, f"Boundary (Incl: {cx},{cy})"
                     
-        return True
+        # Check Exclusion Polygons
+        if self.exclusion_polygons:
+            for poly in self.exclusion_polygons:
+                if cv2.pointPolygonTest(poly, (cx, cy), False) >= 0:
+                     return False, f"ExclusionPoly"
+                     
+        return True, "Valid"
 
 def main():
     # ==========================================

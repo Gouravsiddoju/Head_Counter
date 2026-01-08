@@ -1,8 +1,8 @@
-model: {name: /media/gouravsiddoju/Data/PROJECTS/Head_Counter/runs/train/yolov8n-p2-crowdhuman-debug/weights/best.pt, imgsz: 640, conf_threshold: 0.25, iou_threshold: 0.45, device: 0,
+model: {name: yolov8m-head.pt, imgsz: 960, conf_threshold: 0.3, iou_threshold: 0.45, device: 0,
   half_precision: false}
 tracking: {tracker: botsort.yaml, reid_enabled: true, reid_threshold: 0.6, reid_interval: 5,
   max_age: 120, min_hits: 3}
-filtering: {min_person_height: 10, min_person_width: 10, min_aspect_ratio: 0.5, max_aspect_ratio: 5.0,
+filtering: {min_person_height: 40, min_person_width: 15, min_aspect_ratio: 1.2, max_aspect_ratio: 5.0,
   size_adaptation: true}
 physical_params: {base_footprint_m2: 0.4, buffer_factor_high: 2.0, buffer_factor_low: 1.2}
 performance: {mode: ACCURATE, frame_skip: 1, multi_threading: true, gpu_batch_size: 1,
@@ -11,8 +11,8 @@ performance_modes:
   FAST: {model_name: yolov8m.pt, imgsz: 640, frame_skip: 3, conf_threshold: 0.4}
   BALANCED: {model_name: yolov8x.pt, imgsz: 960, frame_skip: 2, conf_threshold: 0.25}
   ACCURATE: {model_name: yolov8x.pt, imgsz: 1280, frame_skip: 1, conf_threshold: 0.2}
-preprocessing: {enabled: true, resize_width: 0, grayscale: false, roi: null, lighting_normalization: true,
-  motion_blur_handling: false, denoising: true, auto_white_balance: true, stabilization: false}
+preprocessing: {enabled: false, lighting_normalization: true, motion_blur_handling: false,
+  denoising: true, auto_white_balance: true, stabilization: false}
 counting:
   mode: both
   smooth_window: 30

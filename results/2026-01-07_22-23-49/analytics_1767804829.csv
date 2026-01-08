@@ -1,0 +1,1 @@
+timestamp,datetime,current_occupancy,peak_occupancy,unique_people,utilization_pct,est_capacity,capacity_status,flow_rate_per_min,avg_dwell_time_sec,processing_fps,alert_active

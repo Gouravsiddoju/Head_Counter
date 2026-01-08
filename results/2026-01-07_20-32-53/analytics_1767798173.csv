@@ -1,0 +1,9 @@
+timestamp,datetime,current_occupancy,peak_occupancy,unique_people,utilization_pct,est_capacity,capacity_status,flow_rate_per_min,avg_dwell_time_sec,processing_fps,alert_active
+1767798174.61,2026-01-07 20:32:54,0,0,0,0.0%,125,NORMAL,0.0,0.0,1.4,False
+1767798175.67,2026-01-07 20:32:55,1,4,5,0.5%,125,NORMAL,0.0,0.0,6.8,False
+1767798176.72,2026-01-07 20:32:56,4,6,9,1.6%,125,NORMAL,0.0,0.0,9.1,False
+1767798177.78,2026-01-07 20:32:57,4,6,11,2.2%,125,NORMAL,482.9,0.0,11.5,False
+1767798178.81,2026-01-07 20:32:58,4,6,12,2.6%,125,NORMAL,407.5,0.0,12.8,False
+1767798179.86,2026-01-07 20:32:59,1,6,12,2.3%,125,NORMAL,322.4,0.0,13.6,False
+1767798180.93,2026-01-07 20:33:00,2,6,15,2.3%,125,NORMAL,333.3,0.0,14.3,False
+1767798181.94,2026-01-07 20:33:01,3,6,18,2.3%,125,NORMAL,344.7,0.0,15.3,False

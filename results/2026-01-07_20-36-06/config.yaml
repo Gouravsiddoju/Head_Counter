@@ -1,4 +1,4 @@
-model: {name: /media/gouravsiddoju/Data/PROJECTS/Head_Counter/runs/train/yolov8n-p2-crowdhuman-debug/weights/best.pt, imgsz: 640, conf_threshold: 0.25, iou_threshold: 0.45, device: 0,
+model: {name: yolov8n-face.pt, imgsz: 1280, conf_threshold: 0.05, iou_threshold: 0.45, device: 0,
   half_precision: false}
 tracking: {tracker: botsort.yaml, reid_enabled: true, reid_threshold: 0.6, reid_interval: 5,
   max_age: 120, min_hits: 3}
@@ -11,8 +11,8 @@ performance_modes:
   FAST: {model_name: yolov8m.pt, imgsz: 640, frame_skip: 3, conf_threshold: 0.4}
   BALANCED: {model_name: yolov8x.pt, imgsz: 960, frame_skip: 2, conf_threshold: 0.25}
   ACCURATE: {model_name: yolov8x.pt, imgsz: 1280, frame_skip: 1, conf_threshold: 0.2}
-preprocessing: {enabled: true, resize_width: 0, grayscale: false, roi: null, lighting_normalization: true,
-  motion_blur_handling: false, denoising: true, auto_white_balance: true, stabilization: false}
+preprocessing: {enabled: false, lighting_normalization: true, motion_blur_handling: false,
+  denoising: true, auto_white_balance: true, stabilization: false}
 counting:
   mode: both
   smooth_window: 30
