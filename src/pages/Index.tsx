@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Users, UserCheck } from "lucide-react";
+import { Users, UserCheck, Info } from "lucide-react";
 import VideoUploader from "@/components/VideoUploader";
 import StatCard from "@/components/StatCard";
 import CapacityMeter from "@/components/CapacityMeter";
@@ -17,7 +17,6 @@ const Index = () => {
   const handleVideoSelect = useCallback((file: File, url: string) => {
     setVideoFile(file);
     setVideoUrl(url);
-    // Reset stats when new video is loaded
     setPeopleInFrame(0);
     setTotalPeopleSeen(0);
   }, []);
@@ -33,12 +32,11 @@ const Index = () => {
   }, [videoUrl]);
 
   // Simulate head count changes for demo purposes
-  // In production, this would be connected to your ML model
   useEffect(() => {
     if (!videoUrl) return;
 
     const interval = setInterval(() => {
-      const randomChange = Math.floor(Math.random() * 5) - 2; // -2 to +2
+      const randomChange = Math.floor(Math.random() * 5) - 2;
       
       setPeopleInFrame(prev => {
         const newValue = Math.max(0, Math.min(prev + randomChange, MAX_ROOM_CAPACITY));
@@ -46,20 +44,19 @@ const Index = () => {
         if (newValue > prev) {
           setTotalPeopleSeen(total => total + (newValue - prev));
           setAnimateStats(true);
-          setTimeout(() => setAnimateStats(false), 300);
+          setTimeout(() => setAnimateStats(false), 200);
         }
         
         return newValue;
       });
     }, 1500);
 
-    // Initial detection simulation
     setTimeout(() => {
       const initialCount = Math.floor(Math.random() * 10) + 5;
       setPeopleInFrame(initialCount);
       setTotalPeopleSeen(initialCount);
       setAnimateStats(true);
-      setTimeout(() => setAnimateStats(false), 300);
+      setTimeout(() => setAnimateStats(false), 200);
     }, 1000);
 
     return () => clearInterval(interval);
@@ -68,88 +65,93 @@ const Index = () => {
   const capacityPercentage = (peopleInFrame / MAX_ROOM_CAPACITY) * 100;
 
   return (
-    <div className="min-h-screen bg-background p-6 lg:p-8">
-      <div className="max-w-[1600px] mx-auto space-y-6">
+    <div className="min-h-screen bg-background p-4 lg:p-6">
+      <div className="max-w-[1400px] mx-auto space-y-4">
         <DashboardHeader isActive={!!videoUrl} />
 
-        <div className="flex flex-col lg:flex-row gap-6">
+        <div className="flex flex-col lg:flex-row gap-4">
           {/* Video Panel - 60% */}
-          <div className="lg:w-[60%] space-y-4">
-            <div className="glass-card p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-foreground">
+          <div className="lg:w-[60%]">
+            <div className="gov-card h-full">
+              <div className="px-5 py-3 border-b border-border bg-secondary/30 flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider">
                   Video Feed
                 </h2>
                 {videoFile && (
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-xs text-muted-foreground font-mono">
                     {videoFile.name}
                   </span>
                 )}
               </div>
-              <div className="aspect-video">
-                <VideoUploader
-                  onVideoSelect={handleVideoSelect}
-                  videoUrl={videoUrl}
-                  onClear={handleClearVideo}
-                />
+              <div className="p-4">
+                <div className="aspect-video">
+                  <VideoUploader
+                    onVideoSelect={handleVideoSelect}
+                    videoUrl={videoUrl}
+                    onClear={handleClearVideo}
+                  />
+                </div>
               </div>
             </div>
           </div>
 
           {/* Stats Panel - 40% */}
-          <div className="lg:w-[40%] space-y-6">
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-foreground">
-                Live Analytics
-              </h2>
-              
-              <StatCard
-                label="People in Frame"
-                value={peopleInFrame}
-                icon={<Users className="w-5 h-5" />}
-                animate={animateStats}
-              />
+          <div className="lg:w-[40%] space-y-4">
+            <div className="gov-card">
+              <div className="px-5 py-3 border-b border-border bg-secondary/30">
+                <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                  Live Analytics
+                </h2>
+              </div>
+              <div className="p-4 space-y-4">
+                <StatCard
+                  label="People in Frame"
+                  value={peopleInFrame}
+                  icon={<Users className="w-4 h-4" />}
+                  animate={animateStats}
+                />
 
-              <StatCard
-                label="Total People Seen"
-                value={totalPeopleSeen}
-                icon={<UserCheck className="w-5 h-5" />}
-                animate={animateStats}
-              />
-
-              <CapacityMeter
-                percentage={capacityPercentage}
-                currentCount={peopleInFrame}
-                maxCapacity={MAX_ROOM_CAPACITY}
-              />
+                <StatCard
+                  label="Total People Detected"
+                  value={totalPeopleSeen}
+                  icon={<UserCheck className="w-4 h-4" />}
+                  animate={animateStats}
+                />
+              </div>
             </div>
 
-            {/* Info Card */}
-            <div className="glass-card p-5 space-y-3">
-              <h3 className="text-sm font-medium text-foreground">
-                How it works
-              </h3>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  Upload a video with people for head count detection
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  View real-time count of people currently in frame
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  Track total unique people detected throughout the video
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  Monitor room capacity with visual indicators
-                </li>
-              </ul>
+            <CapacityMeter
+              percentage={capacityPercentage}
+              currentCount={peopleInFrame}
+              maxCapacity={MAX_ROOM_CAPACITY}
+            />
+
+            {/* Info Notice */}
+            <div className="gov-card p-4">
+              <div className="flex gap-3">
+                <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    System Information
+                  </h3>
+                  <ul className="space-y-1.5 text-xs text-muted-foreground">
+                    <li>• Upload surveillance footage for automated head count analysis</li>
+                    <li>• Real-time tracking of current occupancy levels</li>
+                    <li>• Cumulative count of all detected individuals</li>
+                    <li>• Capacity alerts when thresholds are exceeded</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Footer */}
+        <footer className="text-center py-4 border-t border-border">
+          <p className="text-xs text-muted-foreground">
+            Occupancy Monitoring System v1.0 • Public Safety Division • For Official Use Only
+          </p>
+        </footer>
       </div>
     </div>
   );

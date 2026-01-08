@@ -10,22 +10,22 @@ interface StatCardProps {
 
 const StatCard = ({ label, value, icon, suffix = "", animate = false }: StatCardProps) => {
   return (
-    <div className="glass-card glow-border p-6 space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
-          {icon}
-        </div>
-        <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+    <div className="gov-card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           {label}
         </span>
+        <div className="p-2 rounded bg-primary/10 text-primary">
+          {icon}
+        </div>
       </div>
       
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-1.5">
         <span className={`stat-value ${animate ? "animate-count" : ""}`}>
           {value}
         </span>
         {suffix && (
-          <span className="text-xl font-medium text-muted-foreground">
+          <span className="text-lg font-medium text-muted-foreground">
             {suffix}
           </span>
         )}
