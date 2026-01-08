@@ -166,6 +166,31 @@ const CapacityMeter = ({ percentage, currentCount, maxCapacity }: CapacityMeterP
             </div>
           </div>
         )}
+
+        {/* Exceeded Capacity Alert */}
+        {percentage > 100 && (
+          <div className="p-4 rounded bg-destructive/15 border-2 border-destructive/40 space-y-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              <p className="text-sm font-bold text-destructive uppercase tracking-wide">Capacity Exceeded</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded bg-background/50 border border-destructive/20">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Exceeded By</p>
+                <p className="text-2xl font-bold font-mono text-destructive">
+                  +{(percentage - 100).toFixed(1)}%
+                </p>
+              </div>
+              <div className="p-3 rounded bg-background/50 border border-destructive/20">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Extra People</p>
+                <p className="text-2xl font-bold font-mono text-destructive">
+                  +{currentCount - maxCapacity}
+                </p>
+                <p className="text-xs text-muted-foreground">persons over limit</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
