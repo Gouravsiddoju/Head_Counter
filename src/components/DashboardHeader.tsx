@@ -1,4 +1,4 @@
-import { Activity, Camera } from "lucide-react";
+import { Shield, Activity } from "lucide-react";
 
 interface DashboardHeaderProps {
   isActive: boolean;
@@ -6,46 +6,56 @@ interface DashboardHeaderProps {
 
 const DashboardHeader = ({ isActive }: DashboardHeaderProps) => {
   return (
-    <header className="flex items-center justify-between pb-6 border-b border-border">
-      <div className="flex items-center gap-4">
-        <div className="p-3 rounded-xl bg-primary/10 text-primary">
-          <Camera className="w-7 h-7" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Head Count Analytics
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Real-time people detection and counting
-          </p>
+    <header className="gov-card overflow-hidden">
+      {/* Government Header Bar */}
+      <div className="gov-header px-6 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Shield className="w-5 h-5" />
+            <span className="text-sm font-semibold tracking-wide uppercase">
+              Public Safety Division
+            </span>
+          </div>
+          <span className="text-xs opacity-80">
+            Authorized Personnel Only
+          </span>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className={`
-          flex items-center gap-2 px-4 py-2 rounded-full 
-          ${isActive 
-            ? "bg-success/10 border border-success/20" 
-            : "bg-secondary border border-border"
-          }
-        `}>
-          <div className={`
-            w-2.5 h-2.5 rounded-full 
-            ${isActive ? "bg-success animate-pulse" : "bg-muted-foreground"}
-          `} />
-          <span className={`
-            text-sm font-medium 
-            ${isActive ? "text-success" : "text-muted-foreground"}
-          `}>
-            {isActive ? "Live" : "Idle"}
-          </span>
+      {/* Main Header */}
+      <div className="px-6 py-4 flex items-center justify-between border-b border-border bg-card">
+        <div>
+          <h1 className="text-xl font-bold text-foreground">
+            Occupancy Monitoring System
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Real-Time Head Count Analytics Dashboard
+          </p>
         </div>
 
-        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border">
-          <Activity className="w-4 h-4 text-primary" />
-          <span className="text-sm font-medium text-foreground">
-            Monitoring
-          </span>
+        <div className="flex items-center gap-3">
+          <div className={`
+            gov-badge
+            ${isActive 
+              ? "bg-success/10 border-success/30 text-success" 
+              : "bg-secondary border-border text-muted-foreground"
+            }
+          `}>
+            <div className={`
+              w-2 h-2 rounded-full 
+              ${isActive ? "bg-success animate-pulse" : "bg-muted-foreground"}
+            `} />
+            <span className="font-semibold uppercase tracking-wide">
+              {isActive ? "Active" : "Standby"}
+            </span>
+          </div>
+
+          <div className="gov-badge bg-primary/5 border-primary/20 text-primary">
+            <Activity className="w-3.5 h-3.5" />
+            <span className="font-semibold uppercase tracking-wide">
+              Monitoring
+            </span>
+          </div>
         </div>
       </div>
     </header>
