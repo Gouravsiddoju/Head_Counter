@@ -26,6 +26,7 @@ class AnalyticsEngine:
         self.log_to_file = config.get('log_to_file', True)
         # Allow overriding log_file from config or use default
         self.log_file = config.get('log_file_path', config.get('log_file', 'analytics.csv'))
+        self.json_file = config.get('json_file_path', None) # Path to write live stats JSON
         self.log_interval = config.get('log_interval', 1)  # seconds
         
         # Metrics tracking
@@ -89,7 +90,10 @@ class AnalyticsEngine:
                     'flow_rate_per_min',
                     'avg_dwell_time_sec',
                     'processing_fps',
-                    'alert_active'
+                    'processing_fps',
+                    'alert_active',
+                    'area_used_sqm',
+                    'area_free_sqm'
                 ])
             print(f"✓ Analytics log initialized: {self.log_file}")
         except Exception as e:
@@ -153,6 +157,8 @@ class AnalyticsEngine:
             capacity = metrics.get('capacity', 0)
             area_sq_meters = metrics.get('area_sq_meters', 0)
             self._log_to_csv(current_count, alert_active, polygon_pixels, occupied_pixels, capacity, area_sq_meters)
+            if self.json_file:
+                self._log_to_json(current_count, alert_active, capacity, area_sq_meters)
             self.last_log_time = current_time
     
     def _log_to_csv(self, current_count: int, alert_active: bool, polygon_pixels: float = 0, occupied_pixels: float = 0, metrics_capacity: int = 0, area_sq_meters: float = 0):
@@ -216,10 +222,64 @@ class AnalyticsEngine:
                     f"{flow_rate:.1f}",
                     f"{avg_dwell:.1f}",
                     f"{avg_fps:.1f}",
-                    alert_active
+                    f"{avg_fps:.1f}",
+                    alert_active,
+                    f"{used_area:.2f}",
+                    f"{max(0, area_sq_meters - used_area):.2f}"
                 ])
         except Exception as e:
             print(f"Warning: Could not log to CSV: {e}")
+
+    def _log_to_json(self, current_count: int, alert_active: bool, metrics_capacity: int = 0, area_sq_meters: float = 0):
+        """Write current stats to JSON for frontend"""
+        try:
+            import json
+            import os
+            
+            # Calculate metrics
+            est_capacity = metrics_capacity if metrics_capacity > 0 else 0
+            
+            # Utilization calc
+            dynamic_buffer = self.buffer_high
+            if est_capacity > 0:
+                fullness_ratio = min(1.0, current_count / est_capacity)
+                dynamic_buffer = self.buffer_high - (fullness_ratio * (self.buffer_high - self.buffer_low))
+            
+            used_area = current_count * (self.base_footprint * dynamic_buffer)
+            
+            utilization_pct = 0.0
+            if area_sq_meters > 0:
+                utilization_pct = (used_area / area_sq_meters) * 100
+            elif est_capacity > 0:
+                utilization_pct = (current_count / est_capacity) * 100
+            
+            # Use smoothed utilization if available
+            if self.utilization_smoother:
+                utilization_pct = np.mean(self.utilization_smoother)
+
+            stats = {
+                'timestamp': time.time(),
+                'datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'current_count': current_count,
+                'total_people_seen': self.total_unique_people,
+                'peak_count': self.peak_occupancy,
+                'capacity': est_capacity,
+                'utilization_pct': round(utilization_pct, 1),
+                'area_total_sqm': round(area_sq_meters, 1) if area_sq_meters else 0,
+                'area_used_sqm': round(used_area, 1),
+                'status': "CRITICAL" if utilization_pct > 90 else "WARNING" if utilization_pct > 70 else "NORMAL",
+                'alert_active': alert_active
+            }
+            
+            # Atomic write to avoid read errors on frontend
+            temp_file = f"{self.json_file}.tmp"
+            with open(temp_file, 'w') as f:
+                json.dump(stats, f)
+            os.replace(temp_file, self.json_file)
+            # print(f"DEBUG: Wrote stats to {os.path.abspath(self.json_file)}")
+            
+        except Exception as e:
+            print(f"Warning: Could not write JSON stats: {e}")
     
     def _calculate_flow_rate(self) -> float:
         """Calculate people flow rate (new unique people per minute)"""

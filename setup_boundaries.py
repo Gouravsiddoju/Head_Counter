@@ -332,7 +332,7 @@ def main():
     # ==========================================
     # INPUT CONFIGURATION
     # Paste your video file path or folder path here:
-    INPUT_SOURCE = "OneDrive/videos/" 
+    INPUT_SOURCE = "clip/2.wmv" 
     # Examples:
     # INPUT_SOURCE = "clip"                   # Process all videos in 'clip' folder
     # INPUT_SOURCE = "/path/to/my/video.mp4"  # Process specific video

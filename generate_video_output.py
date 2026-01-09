@@ -151,6 +151,7 @@ def main():
     parser.add_argument('--input', type=str, required=True, help='Input video file')
     parser.add_argument('--output', type=str, required=True, help='Output video file')
     parser.add_argument('--config', type=str, default='config.yaml', help='Config file')
+    parser.add_argument('--model', type=str, help='Override model path')
     parser.add_argument('--limit', type=int, default=0, help='Max frames to process')
     
     args = parser.parse_args()
@@ -160,7 +161,7 @@ def main():
         config = yaml.safe_load(f)
     
     # Load model
-    model_name = config['model']['name']
+    model_name = args.model if args.model else config['model']['name']
     device = config['model'].get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     
     print(f"Loading {model_name} on {device}...")

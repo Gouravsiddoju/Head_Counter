@@ -4,7 +4,7 @@ tracking: {tracker: botsort.yaml, reid_enabled: true, reid_threshold: 0.6, reid_
   max_age: 120, min_hits: 3}
 filtering: {min_person_height: 10, min_person_width: 10, min_aspect_ratio: 0.5, max_aspect_ratio: 5.0,
   size_adaptation: true}
-physical_params: {base_footprint_m2: 0.4, buffer_factor_low: 1.2, buffer_factor_high: 2.0}
+physical_params: {base_footprint_m2: 1.2, buffer_factor_low: 1.5, buffer_factor_high: 2.5}
 performance: {mode: ACCURATE, frame_skip: 3, multi_threading: true, gpu_batch_size: 1,
   max_fps: 30}
 performance_modes:

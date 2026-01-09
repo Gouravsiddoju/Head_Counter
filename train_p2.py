@@ -90,7 +90,7 @@ def train():
         data=DATA_YAML,
         epochs=100,
         imgsz=960,   # High resolution for small heads
-        batch=32,    # INCREASED for RTX 4090 (was 2 for 1660 Ti)
+        batch=16,    # Reduced to 16 (Safe for 4090 w/ large imgsz)
         workers=16,  # INCREASED for faster data loading
         patience=10,
         device=0,

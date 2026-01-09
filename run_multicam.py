@@ -15,6 +15,54 @@ import sys
 import glob
 import os
 from pathlib import Path
+import threading
+from flask import Flask, Response
+from flask_cors import CORS
+
+# Global Streaming Buffer
+output_frame_lock = threading.Lock()
+output_frame_buffer = None
+
+# Initialize Flask App (Background)
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}}) # Explicitly allow all
+
+def generate_frames():
+    global output_frame_buffer, output_frame_lock
+    while True:
+        with output_frame_lock:
+            if output_frame_buffer is None:
+                continue
+            (flag, encodedImage) = cv2.imencode(".jpg", output_frame_buffer)
+            if not flag:
+                continue
+        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + 
+              bytearray(encodedImage) + b'\r\n')
+        time.sleep(0.01) # Limit stream FPS slightly to save bandwidth
+
+@app.route("/video_feed")
+def video_feed():
+    return Response(generate_frames(), mimetype = "multipart/x-mixed-replace; boundary=frame")
+
+@app.route("/stats")
+def stats_feed():
+    from flask import jsonify
+    try:
+        # Serve the stats file content directly
+        # This bypasses caching issues with static file serving
+        with open('frontend_dashboard/public/stats.json', 'r') as f:
+            import json
+            data = json.load(f)
+        return jsonify(data) # Explicitly return JSON response
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+def start_flask():
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+
+# Start Streaming Thread
+t = threading.Thread(target=start_flask, daemon=True)
+t.start()
 
 # Import existing modules
 from preprocessing import FramePreprocessor
@@ -48,7 +96,9 @@ class SingleVideoProcessor:
             import os
             self.config['analytics']['log_file_path'] = self.result_manager.get_path(f'analytics_{int(time.time())}.csv')
             
-        self.analytics = AnalyticsEngine(config['analytics']) # Initialize per-video analytics
+        self.analytics_config = self.config['analytics'] # Make a copy or reference to modify
+        self.analytics_config['json_file_path'] = 'frontend_dashboard/public/stats.json' # Backend -> Frontend Bridge
+        self.analytics = AnalyticsEngine(self.analytics_config, fps=30) # Initialize per-video analytics
         
         self.frame_count = 0
         
@@ -58,7 +108,7 @@ class SingleVideoProcessor:
         self.exclusion_polygons = []
         self.effective_area = 0.0
         
-    def _init_boundary(self, video_name: str):
+    def _init_boundary(self, video_name: str, shape=None):
         """Initialize boundary for specific video"""
         if not self.boundaries.get('enabled', False):
             return
@@ -92,23 +142,82 @@ class SingleVideoProcessor:
             
         # Calculate effective area if possible
         if self.boundary_polygon is not None and self.boundaries.get('cameras', {}).get(video_name, {}).get('area_sq_meters'):
-             total_area_m2 = self.boundaries['cameras'][video_name]['area_sq_meters']
+            total_area_m2 = self.boundaries['cameras'][video_name]['area_sq_meters']
+            calib = self.boundaries['cameras'][video_name].get('calibration')
              
-             # Calculate pixel areas to find exclusion ratio
-             incl_pixel_area = cv2.contourArea(self.boundary_polygon)
-             excl_pixel_area = 0
-             if self.exclusion_polygons:
-                 for p in self.exclusion_polygons:
-                     excl_pixel_area += cv2.contourArea(p)
-            
-             if incl_pixel_area > 0:
-                 ratio = max(0.0, (incl_pixel_area - excl_pixel_area) / incl_pixel_area)
-                 self.effective_area = total_area_m2 * ratio
-                 print(f"  Area: {total_area_m2}m² (Config) -> {self.effective_area:.2f}m² (Effective after exclusions)")
-             else:
-                 self.effective_area = total_area_m2
+            # Calculate Perspective-Aware Ratio
+            # If shape and calibration avail
+            if shape is not None and calib:
+                 h, w = shape
+                 
+                 # 1. Total Inclusion Physical Area (Integration)
+                 mask_incl = np.zeros((h, w), dtype=np.uint8)
+                 cv2.fillPoly(mask_incl, [self.boundary_polygon], 1)
+                 phys_area_incl = self._integrate_perspective_area(mask_incl, calib)
+                 
+                 # 2. Total Exclusion Physical Area
+                 phys_area_excl = 0
+                 if self.exclusion_polygons:
+                     mask_excl = np.zeros((h, w), dtype=np.uint8)
+                     cv2.fillPoly(mask_excl, self.exclusion_polygons, 1)
+                     # Only count intersection with inclusion
+                     mask_excl = cv2.bitwise_and(mask_excl, mask_incl)
+                     phys_area_excl = self._integrate_perspective_area(mask_excl, calib)
+                 
+                 # 3. Ratio
+                 if phys_area_incl > 0:
+                     ratio = max(0.0, (phys_area_incl - phys_area_excl) / phys_area_incl)
+                     self.effective_area = total_area_m2 * ratio
+                     print(f"  Area: {total_area_m2}m² (Config) -> {self.effective_area:.2f}m² (Effective, Ratio: {ratio:.2f})")
+                 else:
+                     self.effective_area = total_area_m2
+            else:
+                # Fallback to pixel ratio if no shape/calib (should not happen in this flow)
+                 incl_pixel_area = cv2.contourArea(self.boundary_polygon)
+                 excl_pixel_area = 0
+                 if self.exclusion_polygons:
+                     for p in self.exclusion_polygons:
+                         excl_pixel_area += cv2.contourArea(p)
+                
+                 if incl_pixel_area > 0:
+                     ratio = max(0.0, (incl_pixel_area - excl_pixel_area) / incl_pixel_area)
+                     self.effective_area = total_area_m2 * ratio
+                 else:
+                     self.effective_area = total_area_m2
 
         
+    def _integrate_perspective_area(self, mask, calib):
+        """Integrate physical area of a mask using perspective calibration"""
+        # Get Y coordinates of all valid pixels
+        ys, xs = np.where(mask > 0)
+        if len(ys) == 0:
+            return 0.0
+
+        fy, fa = calib['front_y'], calib['front_area']
+        by, ba = calib['back_y'], calib['back_area']
+        
+        # Avoid division by zero
+        if fy == by:
+            return 0.0
+            
+        # Normalize Y (0 at back, 1 at front)
+        y_norm = (ys - by) / (fy - by)
+        y_norm = np.clip(y_norm, -0.5, 1.5) 
+        
+        # Calculate Area per Pixel at this Y
+        # Logic: proportional to reference area
+        # This is an approximation. A pixel at Y corresponds to Real Area ~ (Reference Area / Pixel Density)
+        # We use strict linear interpolation of reference areas as a proxy for scale
+        scale_factors = ba + (fa - ba) * y_norm
+        scale_factors = np.maximum(scale_factors, 10.0)
+        
+        # Area contribution is proportional to Scale Factor
+        # Note: This returns "Calibration Units", not necessarily Meters
+        # We use ratios of this value, so absolute units don't matter as much
+        total_integrated_area = np.sum(scale_factors)
+        
+        return total_integrated_area
+
     def _calculate_capacity(self, calib, polygon, shape):
         """Calculate zone capacity using perspective integration with exclusions"""
         try:
@@ -120,38 +229,40 @@ class SingleVideoProcessor:
             if hasattr(self, 'exclusion_polygons') and self.exclusion_polygons:
                 cv2.fillPoly(mask, self.exclusion_polygons, 0)
             
-            # Get Y coordinates of all pixels in valid area
+            # Use the new integration helper to sum up "person-slots"
+            
+            # Helper logic reconstruction for capacity (Sum of 1/Area)
+            # This is slightly different from Area integration
+            # Capacity = Sum (1 / Footprint_Area)
+            
+            # Get Ys
             ys, xs = np.where(mask > 0)
-            if len(ys) == 0:
-                return 0
+            if len(ys) == 0: return 0
 
             fy, fa = calib['front_y'], calib['front_area']
             by, ba = calib['back_y'], calib['back_area']
             
-            # Avoid division by zero
-            if fy == by:
-                return 0
+            if fy == by: return 0
                 
-            # Normalize Y (0 at back, 1 at front)
-            # Clip to valid range to avoid extreme extrapolation
             y_norm = (ys - by) / (fy - by)
             y_norm = np.clip(y_norm, -0.5, 1.5) 
             
-            # Interpolate area
             pixel_areas = ba + (fa - ba) * y_norm
-            pixel_areas = np.maximum(pixel_areas, 10.0) # Min 10 pixels
+            pixel_areas = np.maximum(pixel_areas, 10.0)
             
-            # Buffer factor (Personal space + Packing inefficiency)
-            # OLD: 2.0 = Person needs 2x their actual bounding box area. WRONG.
-            # Bounding box is full height (Area = W * H). 
-            # Standing footprint is roughly W * W or W * Depth ~ Area / 3 to Area / 4.
-            # So the divisor should be much smaller.
-            # Let's say Footprint = 0.3 * BBox Area.
-            footprint_factor = 0.4
-            effective_areas = pixel_areas * footprint_factor
+            # Get Configured Footprint from self.config if available, else default
+            phys_params = self.config.get('physical_params', {})
+            footprint_factor = phys_params.get('base_footprint_m2', 0.4) 
+            # Note: pixel_areas is "Pixels for a Person". 
+            # If base_footprint_m2 is "Real Meters", we can't directy mix without scale.
+            # But here `pixel_areas` is from calibration (Box Area in Pixels).
+            # So `effective_areas` is "Pixels needed for one person".
             
-            # Sum capacity contributions
-            total_capacity = np.sum(1.0 / effective_areas)
+            # We assume Buffer is implicit or we use a factor of Box Area
+            # Let's revert to a robust ratio: Footprint = 0.4 * Box Area (Empirical)
+            footprint_pixels = pixel_areas * 0.4
+            
+            total_capacity = np.sum(1.0 / footprint_pixels)
             
             return int(total_capacity)
         except Exception as e:
@@ -164,7 +275,7 @@ class SingleVideoProcessor:
         print(f"\nPROCESSING: {video_name}")
         
         # Initialize component
-        self._init_boundary(video_name)
+        # Stream initialization needs to happen FIRST to get resolution for _init_boundary
         
         # Initialize stream for this video
         stream_config = {'type': 'file', 'file_path': video_path}
@@ -175,6 +286,8 @@ class SingleVideoProcessor:
             return []
             
         props = stream.get_properties()
+        # Initialize boundary with properties available
+        self._init_boundary(video_name, shape=(props['height'], props['width']))
         fps = props['fps']
         total_frames = props.get('total_frames', 0)
         
@@ -204,7 +317,7 @@ class SingleVideoProcessor:
                  
              elif 'calibration' in cam_config:
                  self.capacity = self._calculate_capacity(cam_config['calibration'], self.boundary_polygon, (props['height'], props['width']))
-                 print(f"  Perspective Capacity: {self.capacity} people")
+                 print(f"  Perspective Capacity: {self.capacity} people (Area used: {self.effective_area:.1f}m²)")
              elif 'area_sq_meters' in cam_config:
                  # Fallback: Fixed density capacity (2.5 people / m^2)
                  area = cam_config['area_sq_meters']
@@ -264,7 +377,7 @@ class SingleVideoProcessor:
                 # 1. Preprocess
                 processed_frame = self.preprocessor.process(frame)
                 
-                # 2. Detect & Track
+                # 2. Detect & Track (Primary - Head)
                 results = self.model.track(
                     processed_frame,
                     persist=True,
@@ -272,8 +385,11 @@ class SingleVideoProcessor:
                     verbose=False,
                     tracker=self.config['tracking']['tracker'],
                     imgsz=self.config['model']['imgsz'],
-                    conf=self.config['model']['conf_threshold']
+                    conf=self.config['model']['conf_threshold'],
+                    classes=[0, 1] # Allow both just in case
                 )
+                
+
                 
                 # 3. Update Tracking
                 yolo_tracks = {}
@@ -287,7 +403,9 @@ class SingleVideoProcessor:
                          print(f"DEBUG Frame {self.frame_count}: Raw Boxes: {len(boxes)}")
                          
                     for box in boxes:
-                        if int(box.cls[0]) == 0:  # Person/Face
+                        cls_id = int(box.cls[0])
+                        # Allow Class 0 (Person/Head) and Class 1 (Head/Person) in case model differs
+                        if cls_id in [0, 1]:  
                             x1, y1, x2, y2 = map(int, box.xyxy[0])
                             conf = float(box.conf[0])
                             
@@ -298,8 +416,10 @@ class SingleVideoProcessor:
                                     track_id = int(box.id[0])
                                     yolo_tracks[track_id] = ((x1, y1, x2, y2), conf)
                             elif self.frame_count % 30 == 0:
-                                # Print rejection reason occasionally
-                                print(f"DEBUG Frame {self.frame_count}: Rejected {reason}")
+                                pass
+                
+
+
                 
                 
                 # Calculate pixel metrics
@@ -327,7 +447,7 @@ class SingleVideoProcessor:
 
                 metrics = {
                     'current_count': len(self.track_manager.active_tracks),
-                    'unique_count': len(self.track_manager.unique_ids),
+                    'unique_count': len([t for t in list(self.track_manager.active_tracks.values()) + self.track_manager.completed_tracks + self.track_manager.lost_tracks if t.frames_tracked >= 3]),
                     'frame_time': process_time, 
                     'polygon_pixels': polygon_pixels,
                     'occupied_pixels': occupied_pixels,
@@ -366,6 +486,41 @@ class SingleVideoProcessor:
                     # Write frame
                     if self.video_writer:
                         self.video_writer.write(frame)
+                    
+                    global output_frame_buffer, output_frame_lock
+                    with output_frame_lock:
+                        output_frame_buffer = frame.copy()
+                
+                # Calculate Area Metrics & Save Stats
+                input_video_config = self.boundaries.get('cameras', {}).get(video_name, {})
+                
+                occupied_pixels = 0
+                for track in self.track_manager.active_tracks.values():
+                    w = track.bbox[2] - track.bbox[0]
+                    h = track.bbox[3] - track.bbox[1]
+                    occupied_pixels += (w * h)
+                
+                current_count = len(self.track_manager.active_tracks)
+                total_seen = len(self.track_manager.unique_ids)
+                
+                area_used_sqm = 0
+                if self.boundary_polygon is not None:
+                     poly_pixels = cv2.contourArea(self.boundary_polygon)
+                     if poly_pixels > 0:
+                         # Use Raw Config Area for ratio scaling
+                         raw_area = input_video_config.get('area_sq_meters', 100)
+                         ratio = occupied_pixels / poly_pixels
+                         area_used_sqm = raw_area * ratio
+
+                # Use Analytics Engine to save stats
+                self.analytics.update({
+                    'current_count': current_count,
+                    'unique_count': total_seen,
+                    'capacity': self.capacity,
+                    'area_sq_meters': self.effective_area,
+                    'occupied_pixels': occupied_pixels,
+                    'polygon_pixels': poly_pixels if self.boundary_polygon is not None else 0
+                })
                 
         except KeyboardInterrupt:
             print("  Interrupted!")
@@ -454,7 +609,7 @@ def main():
     # ==========================================
     # INPUT CONFIGURATION
     # Paste your video file path or folder path here:
-    INPUT_SOURCE = "OneDrive/videos/NR_NDLS_SERVER_2_NR_NDLS_PF16_CPSIDE_PTZ_104_20260102183911000_20260102184011000_High.wmv" 
+    INPUT_SOURCE = "clip/2.wmv" 
     # Examples:
     # INPUT_SOURCE = "clip"                   # Process all videos in 'clip' folder
     # INPUT_SOURCE = "/path/to/my/video.mp4"  # Process specific video
@@ -543,18 +698,23 @@ def main():
     # Process each video
     total_local_counts = {}
     
-    for video_path in video_paths:
-        processor = SingleVideoProcessor(config, model, device, result_manager)
-        tracks = processor.process_video(video_path, args.limit)
+    # Process videos in infinite loop for continuous monitoring emulation
+    print("Starting Continuous Monitoring Loop...")
+    while True:
+        for video_path in video_paths:
+            processor = SingleVideoProcessor(config, model, device, result_manager)
+            tracks = processor.process_video(video_path, args.limit)
+            
+            video_name = os.path.basename(video_path)
+            total_local_counts[video_name] = len(tracks)
+            
+            # Add to global matcher
+            reid_matcher.add_video_tracks(video_name, tracks)
+            
+        # Optional: break if only running once is desired, but for dashboard demo we loop
+        # break 
         
-        video_name = os.path.basename(video_path)
-        total_local_counts[video_name] = len(tracks)
-        
-        # Add to global matcher
-        reid_matcher.add_video_tracks(video_name, tracks)
-        
-    # Perform Global Matching
-    print("\n" + "="*60)
+        print("\n--- Loop Completed. Restarting for Continuous Feed ---\n")
     print("GLOBAL ANALYSIS")
     print("="*60)
     

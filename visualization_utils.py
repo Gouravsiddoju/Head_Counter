@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+# import matplotlib.pyplot as plt
+# import matplotlib.patches as patches
 import math
 import os
 
@@ -128,6 +128,8 @@ def generate_depth_map(boundary_config, output_path, resolution=(1280, 720)):
     Generates and saves a visualization of the system's internal depth/capacity map.
     Mimics the user's "blue circle packing" visualization.
     """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
     if 'polygon' not in boundary_config:
         return
 

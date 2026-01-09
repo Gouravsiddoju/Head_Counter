@@ -1,0 +1,2 @@
+timestamp,datetime,current_occupancy,peak_occupancy,unique_people,utilization_pct,est_capacity,capacity_status,flow_rate_per_min,avg_dwell_time_sec,processing_fps,processing_fps,alert_active,area_used_sqm,area_free_sqm
+1767939150.08,2026-01-09 11:42:30,0,0,0,0.0%,33,NORMAL,0.0,0.0,0.3,0.3,False,0.00,80.00
